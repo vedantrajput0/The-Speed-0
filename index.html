@@ -4,6 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Tap & Earn Dog Wheel</title>
+    <!-- AdsGram SDK -->
+    <script src="https://sad.adsgram.ai/js/sad.min.js"></script>
     <style>
         * {
             margin: 0;
@@ -146,7 +148,14 @@
             z-index: 20;
         }
 
-        .spin-button {
+        .buttons-container {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+
+        .spin-button, .ads-spin-button {
             background: linear-gradient(45deg, #ff6b6b, #ff8e53);
             color: white;
             border: none;
@@ -157,20 +166,40 @@
             cursor: pointer;
             box-shadow: 0 8px 20px rgba(0,0,0,0.2);
             transition: all 0.3s ease;
-            margin-bottom: 20px;
             border: 3px solid white;
         }
 
-        .spin-button:hover {
+        .ads-spin-button {
+            background: linear-gradient(45deg, #4ecdc4, #44a08d);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .ads-spin-button::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(255,255,255,0.3), transparent);
+            transition: left 0.5s;
+        }
+
+        .ads-spin-button:hover::before {
+            left: 100%;
+        }
+
+        .spin-button:hover, .ads-spin-button:hover {
             transform: translateY(-3px);
             box-shadow: 0 12px 25px rgba(0,0,0,0.3);
         }
 
-        .spin-button:active {
+        .spin-button:active, .ads-spin-button:active {
             transform: translateY(0);
         }
 
-        .spin-button:disabled {
+        .spin-button:disabled, .ads-spin-button:disabled {
             opacity: 0.6;
             cursor: not-allowed;
             transform: none;
@@ -298,6 +327,11 @@
                 font-size: 1.5rem;
                 padding: 12px 20px;
             }
+
+            .spin-button, .ads-spin-button {
+                font-size: 1.2rem;
+                padding: 12px 30px;
+            }
         }
     </style>
 </head>
@@ -319,7 +353,10 @@
             </div>
         </div>
 
-        <button class="spin-button" id="spinButton">🎯 Spin to Earn!</button>
+        <div class="buttons-container">
+            <button class="spin-button" id="spinButton">🎯 Spin to Earn!</button>
+            <button class="ads-spin-button" id="adsSpinButton">📺 Watch Ad & Spin for Bonus!</button>
+        </div>
         
         <div class="status-message" id="statusMessage">
             Tap the wheel to start earning points! 🎉
@@ -335,8 +372,8 @@
         </div>
     </div>
 
-    <!-- Monetag SDK -->
-    <script src='//libtl.com/sdk.js' data-zone='9616590' data-sdk='show_9616590'></script>
+    <!-- Monetag SDK (keeping original) -->
+    <script src='//libtl.com/sdk.js' data-zone='9736806' data-sdk='show_9736806'></script>
 
     <script>
         class TapEarnGame {
@@ -344,16 +381,19 @@
                 this.points = 0;
                 this.isSpinning = false;
                 this.spinCount = 0;
+                this.AdController = null;
                 
                 // Game elements
                 this.wheel = document.getElementById('wheel');
                 this.spinButton = document.getElementById('spinButton');
+                this.adsSpinButton = document.getElementById('adsSpinButton');
                 this.pointsDisplay = document.getElementById('pointsCount');
                 this.statusMessage = document.getElementById('statusMessage');
                 this.adOverlay = document.getElementById('adOverlay');
                 
                 // Point values for different outcomes
                 this.pointRewards = [10, 25, 50, 75, 100, 150, 200, 500];
+                this.bonusPointRewards = [50, 100, 150, 200, 300, 400, 500, 1000]; // Higher rewards for ad spins
                 
                 this.init();
             }
@@ -363,13 +403,41 @@
                 this.setupEventListeners();
                 this.updateDisplay();
                 
-                // Initialize Monetag if available
+                // Initialize AdsGram SDK
+                this.initializeAdsGram();
+                
+                // Initialize Monetag if available (keeping original)
                 this.initializeAds();
             }
             
+            initializeAdsGram() {
+                // Wait for AdsGram to be available
+                const checkAdsGram = () => {
+                    if (window.Adsgram && typeof window.Adsgram.init === 'function') {
+                        try {
+                            this.AdController = window.Adsgram.init({ 
+                                blockId: "int-14079" 
+                            });
+                            console.log('AdsGram SDK initialized successfully');
+                            this.statusMessage.textContent = "Ready to earn! 🎉";
+                        } catch (error) {
+                            console.error('Error initializing AdsGram:', error);
+                            setTimeout(checkAdsGram, 1000);
+                        }
+                    } else {
+                        console.log('Waiting for AdsGram SDK to load...');
+                        setTimeout(checkAdsGram, 500);
+                    }
+                };
+                
+                // Start checking for AdsGram availability
+                checkAdsGram();
+            }
+            
             setupEventListeners() {
-                this.spinButton.addEventListener('click', () => this.handleSpin());
-                this.wheel.addEventListener('click', () => this.handleSpin());
+                this.spinButton.addEventListener('click', () => this.handleSpin(false));
+                this.adsSpinButton.addEventListener('click', () => this.handleAdSpin());
+                this.wheel.addEventListener('click', () => this.handleSpin(false));
             }
             
             loadPoints() {
@@ -388,27 +456,111 @@
                 this.pointsDisplay.textContent = this.points.toLocaleString();
             }
             
-            async handleSpin() {
+            async handleSpin(isBonus = false) {
                 if (this.isSpinning) return;
                 
                 this.isSpinning = true;
                 this.spinButton.disabled = true;
-                this.statusMessage.textContent = "Loading ad... 📺";
+                this.adsSpinButton.disabled = true;
                 
+                if (!isBonus) {
+                    this.statusMessage.textContent = "Loading ad... 📺";
+                    
+                    try {
+                        // Show original ad first
+                        await this.showAd();
+                        
+                        // Then spin the wheel
+                        await this.spinWheel(false);
+                        
+                    } catch (error) {
+                        console.error('Error during spin:', error);
+                        this.statusMessage.textContent = "Something went wrong! Try again 😅";
+                    }
+                } else {
+                    // Direct spin for bonus (ad already shown)
+                    await this.spinWheel(true);
+                }
+                
+                this.isSpinning = false;
+                this.spinButton.disabled = false;
+                this.adsSpinButton.disabled = false;
+            }
+
+            async handleAdSpin() {
+                if (this.isSpinning) return;
+
+                if (!this.AdController) {
+                    this.statusMessage.textContent = "AdsGram not ready, try again! ⏰";
+                    return;
+                }
+
+                this.isSpinning = true;
+                this.spinButton.disabled = true;
+                this.adsSpinButton.disabled = true;
+                this.statusMessage.textContent = "Loading bonus ad... 🎬";
+
                 try {
-                    // Show ad first
-                    await this.showAd();
-                    
-                    // Then spin the wheel
-                    await this.spinWheel();
-                    
+                    await this.showAdsGramAd();
                 } catch (error) {
-                    console.error('Error during spin:', error);
-                    this.statusMessage.textContent = "Something went wrong! Try again 😅";
+                    console.error('Error showing AdsGram ad:', error);
+                    this.statusMessage.textContent = "Ad not available, try again! 😅";
                 } finally {
                     this.isSpinning = false;
                     this.spinButton.disabled = false;
+                    this.adsSpinButton.disabled = false;
                 }
+            }
+
+            async showAdsGramAd() {
+                return new Promise((resolve, reject) => {
+                    if (!this.AdController) {
+                        reject(new Error('AdsGram not initialized'));
+                        return;
+                    }
+
+                    // Show the ad using proper AdsGram API
+                    this.AdController.show().then((result) => {
+                        // Ad was successfully watched (rewarded format)
+                        console.log('AdsGram ad completed successfully:', result);
+                        this.statusMessage.textContent = "Ad completed! Spinning for bonus... 🎯";
+                        
+                        // Delay before spinning for better UX
+                        setTimeout(() => {
+                            this.handleSpin(true); // Spin with bonus
+                            resolve();
+                        }, 500);
+                        
+                    }).catch((result) => {
+                        // Handle ad errors or user skipping
+                        console.log('AdsGram ad error or skipped:', result);
+                        
+                        let errorMessage = "Try again! 😅";
+                        
+                        // Handle specific error states based on AdsGram documentation
+                        if (result && result.description) {
+                            switch (result.description) {
+                                case 'AdBlock':
+                                    errorMessage = "Please disable AdBlock! 🚫";
+                                    break;
+                                case 'LoadFailed':
+                                    errorMessage = "Ad failed to load! 📱";
+                                    break;
+                                case 'NoFill':
+                                    errorMessage = "No ads available now! ⏰";
+                                    break;
+                                case 'NotReady':
+                                    errorMessage = "AdsGram not ready! ⏳";
+                                    break;
+                                default:
+                                    errorMessage = `Ad issue: ${result.description} 😅`;
+                            }
+                        }
+                        
+                        this.statusMessage.textContent = errorMessage;
+                        reject(result);
+                    });
+                });
             }
             
             async showAd() {
@@ -418,11 +570,11 @@
                     
                     // Try to show Monetag ad
                     try {
-                        if (window.show_9616590) {
-                            window.show_9616590();
+                        if (window.show_9736806) {
+                            window.show_9736806();
                         }
                     } catch (error) {
-                        console.log('Ad not available:', error);
+                        console.log('Monetag ad not available:', error);
                     }
                     
                     // Simulate ad duration (2-3 seconds)
@@ -435,50 +587,53 @@
                 });
             }
             
-            async spinWheel() {
+            async spinWheel(isBonus = false) {
                 return new Promise((resolve) => {
-                    this.statusMessage.textContent = "Spinning... 🎪";
+                    this.statusMessage.textContent = isBonus ? "Bonus spinning... 🎪✨" : "Spinning... 🎪";
                     
                     // Add spinning animation
                     this.wheel.classList.add('spinning');
                     
                     // Calculate reward
-                    const reward = this.calculateReward();
+                    const reward = this.calculateReward(isBonus);
                     
                     setTimeout(() => {
                         this.wheel.classList.remove('spinning');
-                        this.awardPoints(reward);
+                        this.awardPoints(reward, isBonus);
                         resolve();
                     }, 3000);
                 });
             }
             
-            calculateReward() {
+            calculateReward(isBonus = false) {
+                const rewards = isBonus ? this.bonusPointRewards : this.pointRewards;
+                
                 // Higher probability for lower rewards, rare chance for big rewards
                 const random = Math.random();
                 
-                if (random < 0.4) return this.pointRewards[0]; // 10 points - 40%
-                if (random < 0.65) return this.pointRewards[1]; // 25 points - 25%
-                if (random < 0.8) return this.pointRewards[2]; // 50 points - 15%
-                if (random < 0.9) return this.pointRewards[3]; // 75 points - 10%
-                if (random < 0.95) return this.pointRewards[4]; // 100 points - 5%
-                if (random < 0.98) return this.pointRewards[5]; // 150 points - 3%
-                if (random < 0.995) return this.pointRewards[6]; // 200 points - 1.5%
-                return this.pointRewards[7]; // 500 points - 0.5%
+                if (random < 0.4) return rewards[0]; // 40%
+                if (random < 0.65) return rewards[1]; // 25%
+                if (random < 0.8) return rewards[2]; // 15%
+                if (random < 0.9) return rewards[3]; // 10%
+                if (random < 0.95) return rewards[4]; // 5%
+                if (random < 0.98) return rewards[5]; // 3%
+                if (random < 0.995) return rewards[6]; // 1.5%
+                return rewards[7]; // 0.5%
             }
             
-            awardPoints(reward) {
+            awardPoints(reward, isBonus = false) {
                 this.points += reward;
                 this.savePoints();
                 this.updateDisplay();
                 
                 // Visual feedback
-                this.showFloatingPoints(reward);
+                this.showFloatingPoints(reward, isBonus);
                 this.pulsePointsDisplay();
                 this.createSparkles();
                 
                 // Update status
-                this.statusMessage.textContent = `🎉 You earned ${reward} points! Spin again!`;
+                const bonusText = isBonus ? "BONUS " : "";
+                this.statusMessage.textContent = `🎉 ${bonusText}You earned ${reward} points! Spin again!`;
                 
                 // Play success sound (if available)
                 this.playSuccessSound();
@@ -486,10 +641,16 @@
                 this.spinCount++;
             }
             
-            showFloatingPoints(points) {
+            showFloatingPoints(points, isBonus = false) {
                 const floatingPoints = document.createElement('div');
                 floatingPoints.className = 'floating-points';
                 floatingPoints.textContent = `+${points}`;
+                
+                if (isBonus) {
+                    floatingPoints.style.color = '#4ecdc4';
+                    floatingPoints.style.fontSize = '2.5rem';
+                    floatingPoints.textContent = `BONUS +${points}`;
+                }
                 
                 // Position near the wheel
                 floatingPoints.style.left = '50%';
@@ -499,7 +660,9 @@
                 document.body.appendChild(floatingPoints);
                 
                 setTimeout(() => {
-                    document.body.removeChild(floatingPoints);
+                    if (document.body.contains(floatingPoints)) {
+                        document.body.removeChild(floatingPoints);
+                    }
                 }, 2000);
             }
             
@@ -565,8 +728,8 @@
             }
             
             initializeAds() {
-                // Initialize Monetag ads when available
-                if (typeof window.show_9616590 === 'function') {
+                // Initialize Monetag ads when available (keeping original functionality)
+                if (typeof window.show_9736806 === 'function') {
                     console.log('Monetag ads initialized');
                 } else {
                     console.log('Waiting for Monetag SDK...');
@@ -578,7 +741,17 @@
         
         // Initialize the game when the page loads
         document.addEventListener('DOMContentLoaded', () => {
-            new TapEarnGame();
+            // Give a small delay to ensure all scripts are loaded
+            setTimeout(() => {
+                new TapEarnGame();
+            }, 100);
+        });
+        
+        // Also initialize when window loads as backup
+        window.addEventListener('load', () => {
+            if (!window.gameInstance) {
+                window.gameInstance = new TapEarnGame();
+            }
         });
         
         // Handle Telegram Mini App integration
