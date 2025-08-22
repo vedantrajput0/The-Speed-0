@@ -146,7 +146,14 @@
             z-index: 20;
         }
 
-        .spin-button {
+        .button-container {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+
+        .spin-button, .watch-ad-button {
             background: linear-gradient(45deg, #ff6b6b, #ff8e53);
             color: white;
             border: none;
@@ -157,20 +164,23 @@
             cursor: pointer;
             box-shadow: 0 8px 20px rgba(0,0,0,0.2);
             transition: all 0.3s ease;
-            margin-bottom: 20px;
             border: 3px solid white;
         }
 
-        .spin-button:hover {
+        .watch-ad-button {
+            background: linear-gradient(45deg, #4ecdc4, #44a08d);
+        }
+
+        .spin-button:hover, .watch-ad-button:hover {
             transform: translateY(-3px);
             box-shadow: 0 12px 25px rgba(0,0,0,0.3);
         }
 
-        .spin-button:active {
+        .spin-button:active, .watch-ad-button:active {
             transform: translateY(0);
         }
 
-        .spin-button:disabled {
+        .spin-button:disabled, .watch-ad-button:disabled {
             opacity: 0.6;
             cursor: not-allowed;
             transform: none;
@@ -270,6 +280,20 @@
             100% { transform: rotate(360deg); }
         }
 
+        .debug-info {
+            position: fixed;
+            top: 10px;
+            right: 10px;
+            background: rgba(0,0,0,0.8);
+            color: white;
+            padding: 10px;
+            border-radius: 10px;
+            font-family: monospace;
+            font-size: 12px;
+            max-width: 300px;
+            z-index: 999;
+        }
+
         /* Responsive Design */
         @media (max-width: 480px) {
             .container {
@@ -298,6 +322,13 @@
                 font-size: 1.5rem;
                 padding: 12px 20px;
             }
+
+            .debug-info {
+                position: relative;
+                margin-top: 20px;
+                right: auto;
+                top: auto;
+            }
         }
     </style>
 </head>
@@ -319,11 +350,23 @@
             </div>
         </div>
 
-        <button class="spin-button" id="spinButton">🎯 Spin to Earn!</button>
+        <div class="button-container">
+            <button class="spin-button" id="spinButton">🎯 Spin to Earn!</button>
+            <button class="watch-ad-button" id="watchAdButton">📺 Watch Ad for Bonus!</button>
+        </div>
         
         <div class="status-message" id="statusMessage">
             Tap the wheel to start earning points! 🎉
         </div>
+    </div>
+
+    <!-- Debug Info Panel -->
+    <div class="debug-info" id="debugInfo">
+        <div><strong>AdSonar Debug Mode</strong></div>
+        <div>App ID: app_aa181bab</div>
+        <div>SDK Status: <span id="sdkStatus">Loading...</span></div>
+        <div>Last Action: <span id="lastAction">None</span></div>
+        <div>Ads Shown: <span id="adsShown">0</span></div>
     </div>
 
     <!-- Ad Overlay -->
@@ -335,8 +378,8 @@
         </div>
     </div>
 
-    <!-- Monetag SDK -->
-    <script src='//libtl.com/sdk.js' data-zone='9616590' data-sdk='show_9616590'></script>
+    <!-- AdSonar SDK with Debug Mode -->
+    <script src="https://static.sonartech.io/lib/1.0.0/sonar.js?appId=app_aa181bab&isDebug=true"></script>
 
     <script>
         class TapEarnGame {
@@ -344,13 +387,21 @@
                 this.points = 0;
                 this.isSpinning = false;
                 this.spinCount = 0;
+                this.adsShown = 0;
                 
                 // Game elements
                 this.wheel = document.getElementById('wheel');
                 this.spinButton = document.getElementById('spinButton');
+                this.watchAdButton = document.getElementById('watchAdButton');
                 this.pointsDisplay = document.getElementById('pointsCount');
                 this.statusMessage = document.getElementById('statusMessage');
                 this.adOverlay = document.getElementById('adOverlay');
+                
+                // Debug elements
+                this.debugInfo = document.getElementById('debugInfo');
+                this.sdkStatus = document.getElementById('sdkStatus');
+                this.lastAction = document.getElementById('lastAction');
+                this.adsShownDisplay = document.getElementById('adsShown');
                 
                 // Point values for different outcomes
                 this.pointRewards = [10, 25, 50, 75, 100, 150, 200, 500];
@@ -363,29 +414,41 @@
                 this.setupEventListeners();
                 this.updateDisplay();
                 
-                // Initialize Monetag if available
-                this.initializeAds();
+                // Initialize AdSonar SDK
+                this.initializeAdSonar();
+                
+                // Update debug info periodically
+                setInterval(() => this.updateDebugInfo(), 1000);
             }
             
             setupEventListeners() {
                 this.spinButton.addEventListener('click', () => this.handleSpin());
+                this.watchAdButton.addEventListener('click', () => this.handleWatchAd());
                 this.wheel.addEventListener('click', () => this.handleSpin());
             }
             
             loadPoints() {
-                // In a real Telegram Mini App, replace this with localStorage:
-                // this.points = parseInt(localStorage.getItem('tapEarnPoints') || '0');
                 this.points = this.points || 0;
             }
             
             savePoints() {
-                // In a real Telegram Mini App, replace this with localStorage:
-                // localStorage.setItem('tapEarnPoints', this.points.toString());
-                // For now, points are kept in memory
+                // For persistence, you can use localStorage in a real app
             }
             
             updateDisplay() {
                 this.pointsDisplay.textContent = this.points.toLocaleString();
+                this.adsShownDisplay.textContent = this.adsShown;
+            }
+            
+            updateDebugInfo() {
+                // Check AdSonar SDK status
+                if (window.AdSonar) {
+                    this.sdkStatus.textContent = 'Ready';
+                    this.sdkStatus.style.color = '#4ecdc4';
+                } else {
+                    this.sdkStatus.textContent = 'Loading...';
+                    this.sdkStatus.style.color = '#ff6b6b';
+                }
             }
             
             async handleSpin() {
@@ -393,11 +456,13 @@
                 
                 this.isSpinning = true;
                 this.spinButton.disabled = true;
+                this.watchAdButton.disabled = true;
                 this.statusMessage.textContent = "Loading ad... 📺";
+                this.lastAction.textContent = "Spin + Ad";
                 
                 try {
                     // Show ad first
-                    await this.showAd();
+                    await this.showAd('spin');
                     
                     // Then spin the wheel
                     await this.spinWheel();
@@ -408,31 +473,85 @@
                 } finally {
                     this.isSpinning = false;
                     this.spinButton.disabled = false;
+                    this.watchAdButton.disabled = false;
                 }
             }
             
-            async showAd() {
-                return new Promise((resolve) => {
+            async handleWatchAd() {
+                if (this.isSpinning) return;
+                
+                this.watchAdButton.disabled = true;
+                this.spinButton.disabled = true;
+                this.statusMessage.textContent = "Loading bonus ad... 💰";
+                this.lastAction.textContent = "Watch Ad";
+                
+                try {
+                    await this.showAd('bonus');
+                    
+                    // Give bonus points for watching ad
+                    const bonusPoints = 50 + Math.floor(Math.random() * 100); // 50-150 bonus points
+                    this.awardPoints(bonusPoints, "🎁 Bonus from ad!");
+                    
+                } catch (error) {
+                    console.error('Error showing ad:', error);
+                    this.statusMessage.textContent = "Ad not available! Try again later 😅";
+                } finally {
+                    this.watchAdButton.disabled = false;
+                    this.spinButton.disabled = false;
+                }
+            }
+            
+            async showAd(type = 'general') {
+                return new Promise((resolve, reject) => {
                     // Show ad overlay
                     this.adOverlay.style.display = 'flex';
                     
-                    // Try to show Monetag ad
+                    // Try to show AdSonar ad
                     try {
-                        if (window.show_9616590) {
-                            window.show_9616590();
+                        if (window.AdSonar && window.AdSonar.showAd) {
+                            console.log(`[AdSonar Debug] Showing ${type} ad...`);
+                            
+                            window.AdSonar.showAd({
+                                type: type === 'bonus' ? 'rewarded' : 'interstitial',
+                                onAdShown: () => {
+                                    console.log('[AdSonar Debug] Ad shown successfully');
+                                    this.adsShown++;
+                                    this.updateDisplay();
+                                },
+                                onAdClosed: () => {
+                                    console.log('[AdSonar Debug] Ad closed');
+                                    this.adOverlay.style.display = 'none';
+                                    resolve();
+                                },
+                                onAdFailed: (error) => {
+                                    console.log('[AdSonar Debug] Ad failed:', error);
+                                    this.adOverlay.style.display = 'none';
+                                    resolve(); // Still resolve to continue game flow
+                                }
+                            });
+                        } else {
+                            console.log('[AdSonar Debug] SDK not ready, simulating ad...');
+                            // Fallback: simulate ad
+                            this.simulateAd(resolve);
                         }
                     } catch (error) {
-                        console.log('Ad not available:', error);
+                        console.log('[AdSonar Debug] Error showing ad:', error);
+                        this.simulateAd(resolve);
                     }
-                    
-                    // Simulate ad duration (2-3 seconds)
-                    const adDuration = 2000 + Math.random() * 1000;
-                    
-                    setTimeout(() => {
-                        this.adOverlay.style.display = 'none';
-                        resolve();
-                    }, adDuration);
                 });
+            }
+            
+            simulateAd(resolve) {
+                // Simulate ad duration (2-3 seconds) when real ad is not available
+                const adDuration = 2000 + Math.random() * 1000;
+                
+                setTimeout(() => {
+                    this.adOverlay.style.display = 'none';
+                    this.adsShown++;
+                    this.updateDisplay();
+                    console.log('[AdSonar Debug] Simulated ad completed');
+                    resolve();
+                }, adDuration);
             }
             
             async spinWheel() {
@@ -447,7 +566,7 @@
                     
                     setTimeout(() => {
                         this.wheel.classList.remove('spinning');
-                        this.awardPoints(reward);
+                        this.awardPoints(reward, `🎉 You earned ${reward} points! Spin again!`);
                         resolve();
                     }, 3000);
                 });
@@ -467,7 +586,7 @@
                 return this.pointRewards[7]; // 500 points - 0.5%
             }
             
-            awardPoints(reward) {
+            awardPoints(reward, message = null) {
                 this.points += reward;
                 this.savePoints();
                 this.updateDisplay();
@@ -478,12 +597,16 @@
                 this.createSparkles();
                 
                 // Update status
-                this.statusMessage.textContent = `🎉 You earned ${reward} points! Spin again!`;
+                if (message) {
+                    this.statusMessage.textContent = message;
+                }
                 
                 // Play success sound (if available)
                 this.playSuccessSound();
                 
                 this.spinCount++;
+                
+                console.log(`[AdSonar Debug] Awarded ${reward} points. Total: ${this.points}`);
             }
             
             showFloatingPoints(points) {
@@ -499,7 +622,9 @@
                 document.body.appendChild(floatingPoints);
                 
                 setTimeout(() => {
-                    document.body.removeChild(floatingPoints);
+                    if (document.body.contains(floatingPoints)) {
+                        document.body.removeChild(floatingPoints);
+                    }
                 }, 2000);
             }
             
@@ -564,14 +689,23 @@
                 }
             }
             
-            initializeAds() {
-                // Initialize Monetag ads when available
-                if (typeof window.show_9616590 === 'function') {
-                    console.log('Monetag ads initialized');
+            initializeAdSonar() {
+                // Initialize AdSonar SDK when available
+                if (window.AdSonar) {
+                    console.log('[AdSonar Debug] SDK initialized successfully');
+                    this.sdkStatus.textContent = 'Ready';
                 } else {
-                    console.log('Waiting for Monetag SDK...');
+                    console.log('[AdSonar Debug] Waiting for SDK...');
                     // Retry initialization after a delay
-                    setTimeout(() => this.initializeAds(), 1000);
+                    setTimeout(() => this.initializeAdSonar(), 1000);
+                }
+                
+                // Listen for SDK events if available
+                if (window.AdSonar && window.AdSonar.addEventListener) {
+                    window.AdSonar.addEventListener('sdkReady', () => {
+                        console.log('[AdSonar Debug] SDK ready event fired');
+                        this.lastAction.textContent = 'SDK Ready';
+                    });
                 }
             }
         }
@@ -586,6 +720,11 @@
             window.Telegram.WebApp.ready();
             window.Telegram.WebApp.expand();
         }
+        
+        // Global error handler for debugging
+        window.addEventListener('error', (event) => {
+            console.error('[AdSonar Debug] Global error:', event.error);
+        });
     </script>
 </body>
 </html>
